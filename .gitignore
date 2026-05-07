@@ -1,0 +1,42 @@
+# Virtual Environment
+venv/
+rekomendasi/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Environment file
+.env
+
+# Tensorflow / model output
+# *.h5
+# *.keras
+# *.ckpt
+
+# Logs
+*.log
+
+# Dataset besar (optional)
+# dataset/
+# data/
+
+# Build
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
