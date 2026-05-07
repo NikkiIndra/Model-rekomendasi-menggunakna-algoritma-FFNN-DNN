@@ -9,9 +9,6 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Jupyter
-.ipynb_checkpoints/
-
 # VSCode
 .vscode/
 
@@ -21,22 +18,3 @@ __pycache__/
 # Environment file
 .env
 
-# Tensorflow / model output
-# *.h5
-# *.keras
-# *.ckpt
-
-# Logs
-*.log
-
-# Dataset besar (optional)
-# dataset/
-# data/
-
-# Build
-dist/
-build/
-
-# OS
-.DS_Store
-Thumbs.db
