@@ -1,6 +1,6 @@
 fastapi==0.111.0
 uvicorn==0.29.0
-tensorflow-cpu==2.15.0
+tensorflow-cpu==2.18.0
 numpy==1.26.4
 scikit-learn==1.4.2
 joblib==1.4.2
