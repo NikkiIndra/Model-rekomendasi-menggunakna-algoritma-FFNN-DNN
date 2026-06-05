@@ -4,6 +4,7 @@ Menghasilkan JSON output rekomendasi aktivitas berdasarkan profil stres user.
 Pastikan sudah menjalankan 'python train.py' terlebih dahulu.
 """
 
+import os
 import joblib
 import json
 import random
@@ -15,23 +16,24 @@ from tensorflow import keras
 # Custom objects yang dibutuhkan saat load model.keras
 # (harus didefinisikan ulang agar model bisa di-deserialize)
 class ResidualBlock(keras.layers.Layer):
-    def __init__(self, units, dropout_rate=0.2, **kwargs):
+    def __init__(self, units, dropout_rate=0.2, l2_val=0.005, **kwargs):
         super(ResidualBlock, self).__init__(**kwargs)
         self.units        = units
         self.dropout_rate = dropout_rate
+        self.l2_val       = l2_val
 
-        self.dense1   = keras.layers.Dense(units)
+        self.dense1   = keras.layers.Dense(units, kernel_regularizer=keras.regularizers.l2(l2_val))
         self.bn1      = keras.layers.BatchNormalization()
         self.act1     = keras.layers.Activation('relu')
         self.dropout  = keras.layers.Dropout(dropout_rate)
-        self.dense2   = keras.layers.Dense(units)
+        self.dense2   = keras.layers.Dense(units, kernel_regularizer=keras.regularizers.l2(l2_val))
         self.bn2      = keras.layers.BatchNormalization()
         self.proj     = None
         self.act_out  = keras.layers.Activation('relu')
 
     def build(self, input_shape):
         if input_shape[-1] != self.units:
-            self.proj = keras.layers.Dense(self.units)
+            self.proj = keras.layers.Dense(self.units, kernel_regularizer=keras.regularizers.l2(self.l2_val))
         super(ResidualBlock, self).build(input_shape)
 
     def call(self, inputs, training=False):
@@ -46,7 +48,11 @@ class ResidualBlock(keras.layers.Layer):
 
     def get_config(self):
         config = super(ResidualBlock, self).get_config()
-        config.update({'units': self.units, 'dropout_rate': self.dropout_rate})
+        config.update({
+            'units': self.units, 
+            'dropout_rate': self.dropout_rate,
+            'l2_val': self.l2_val
+        })
         return config
 
 
@@ -97,8 +103,10 @@ class DeepLearningInference:
             self.scaler = joblib.load(scaler_path)
             self.le     = joblib.load(le_path)
 
-            # Load dataset buku (opsional — tidak error jika tidak ada)
-            books_path = 'dataset/mindcare_books_dataset.csv'
+            # Load dataset buku — gunakan path absolut agar selalu ditemukan
+            # tidak peduli dari folder mana server dijalankan
+            _base = os.path.dirname(os.path.abspath(__file__))
+            books_path = os.path.join(_base, 'dataset', 'mindcare_books_dataset.csv')
             if os.path.exists(books_path):
                 self.books_df = pd.read_csv(books_path)
             else:
@@ -112,7 +120,7 @@ class DeepLearningInference:
 
     # ── PREPROCESSING INPUT ───────────────────────────────────
     def transform_user_input(self, user_json: dict) -> np.ndarray:
-        """Memetakan JSON mentah menjadi array numerik terstandarisasi."""
+        """Memetakan JSON mentah menjadi array numerik terstandarisasi dengan rekayasa fitur."""
         pekerjaan_map = {'mahasiswa': 15, 'pelajar': 15, 'karyawan': 12, 'wirausaha': 3}
         penyebab_map  = {'akademik': 2, 'pekerjaan': 4, 'hubungan': 6, 'finansial': 7}
 
@@ -142,18 +150,44 @@ class DeepLearningInference:
         pref_membaca  = pref_enc('membaca')
         pref_jurnal   = pref_enc('journaling')
 
+        # 11 fitur dasar
+        umur = float(user_json.get('Umur', 20))
+        stress_level = float(user_json.get('Tingkat stres', 3))
+        kualitas_tidur = float(user_json.get('Kualitas tidur', 3))
+        waktu_luang = float(user_json.get('Waktu luang per hari', 60))
+
+        # 9 fitur interaksi (harus sama persis dengan train.py)
+        stress_sleep_ratio = stress_level / (kualitas_tidur + 1e-5)
+        luang_fisik_ratio = waktu_luang / (aktivitas_fisik + 1e-5)
+        pref_score = float(pref_olahraga + pref_membaca + pref_jurnal)
+        stress_cause_interact = stress_level * float(penyebab_enc)
+        age_stress_interact = umur * stress_level
+        sleep_dur_interact = kualitas_tidur * durasi
+        physical_active_pref = float(aktivitas_fisik * pref_olahraga)
+        reading_pref_luang = waktu_luang * float(pref_membaca)
+        jurnal_pref_stress = float(pref_jurnal * stress_level)
+
         features = [
-            float(user_json.get('Umur', 20)),
+            umur,
             float(pekerjaan_enc),
-            float(user_json.get('Tingkat stres', 3)),
+            stress_level,
             float(penyebab_enc),
-            float(durasi),
-            float(user_json.get('Kualitas tidur', 3)),
-            float(user_json.get('Waktu luang per hari', 60)),
+            durasi,
+            kualitas_tidur,
+            waktu_luang,
             float(aktivitas_fisik),
             float(pref_olahraga),
             float(pref_membaca),
             float(pref_jurnal),
+            stress_sleep_ratio,
+            luang_fisik_ratio,
+            pref_score,
+            stress_cause_interact,
+            age_stress_interact,
+            sleep_dur_interact,
+            physical_active_pref,
+            reading_pref_luang,
+            jurnal_pref_stress
         ]
 
         return self.scaler.transform([features])
@@ -225,9 +259,31 @@ class DeepLearningInference:
         """
         user_features = self.transform_user_input(user_json)
 
-        # Prediksi probabilitas Softmax
-        predictions = self.model.predict(user_features, verbose=0)[0]
+        # Prediksi probabilitas Softmax dan Stress Percentage
+        pred_act, pred_stress = self.model.predict(user_features, verbose=0)
+        predictions = pred_act[0]
         class_names = self.le.classes_
+
+        # Ambil nilai prediksi tingkat stres dan batasi ke persentase
+        stress_val = float(pred_stress[0][0])
+        stress_percentage = round(stress_val * 100.0, 1)
+
+        # Klasifikasikan tingkat stres berdasarkan persentase
+        if stress_percentage <= 20.0:
+            stress_level = "Sangat Rendah"
+            keterangan = "Pengguna menunjukkan indikasi tingkat stres yang sangat rendah. Kondisi psikologis cenderung sangat stabil dan rileks."
+        elif stress_percentage <= 40.0:
+            stress_level = "Rendah"
+            keterangan = "Pengguna menunjukkan indikasi tingkat stres yang rendah. Kondisi psikologis tergolong stabil dan terkendali."
+        elif stress_percentage <= 60.0:
+            stress_level = "Sedang"
+            keterangan = "Pengguna menunjukkan indikasi tingkat stres sedang. Ada tekanan yang dirasakan namun masih dalam batas wajar."
+        elif stress_percentage <= 80.0:
+            stress_level = "Tinggi"
+            keterangan = "Pengguna menunjukkan indikasi tingkat stres yang cukup tinggi berdasarkan pola jawaban pada 11 fitur yang diberikan."
+        else:
+            stress_level = "Sangat Tinggi"
+            keterangan = "Pengguna menunjukkan indikasi tingkat stres yang sangat tinggi. Disarankan untuk segera beristirahat atau berkonsultasi dengan profesional jika diperlukan."
 
         # Distribusi probabilitas semua kelas
         prob_dist    = {class_names[i]: float(predictions[i])
@@ -283,10 +339,15 @@ class DeepLearningInference:
         top_label  = utama_label
         top_pct    = round(utama_prob * 100, 1)
         result = {
+            'stress_assessment': {
+                'stress_percentage': stress_percentage,
+                'stress_level': stress_level,
+                'keterangan': keterangan
+            },
             'rekomendasi_utama': rekomendasi_utama,
             'alternatif'       : alternatif_list,
             'insight'          : {
-                'model_type'               : 'Deep Learning — Functional API + Residual Block',
+                'model_type'               : 'Deep Learning - Functional API + Residual Block',
                 'distribusi_probabilitas'  : {k: round(v, 3) for k, v in prob_dist.items()},
                 'alasan'                   : (
                     f"Jaringan saraf tiruan (Neural Network) dengan arsitektur Residual Block "
@@ -310,8 +371,6 @@ class DeepLearningInference:
 # ──────────────────────────────────────────────
 # CONTOH PENGGUNAAN
 # ──────────────────────────────────────────────
-import os
-
 if __name__ == '__main__':
     try:
         inference = DeepLearningInference(
