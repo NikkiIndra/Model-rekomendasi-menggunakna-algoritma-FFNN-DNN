@@ -1,24 +1,32 @@
-# Virtual Environment
-venv/
+# Python virtual environments
 rekomendasi/
+venv/
 env/
-
-# Python Cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# VSCode
-.vscode/
-
-# PyCharm
-.idea/
-
-# Environment file
 .env
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
 
-implementation_plan.md
-presentation_script.txt
+# Dataset (besar, simpan di storage/drive terpisah)
+# dataset/ 
+# CATATAN: Hapus tanda # di atas jika dataset besar (>1GB)
+# Untuk sekarang dataset tetap disertakan karena dibutuhkan training
 
+# Visualisasi hasil (bisa dibuat ulang setelah training)
+confusion_matrix.png
+overfitting_analysis.png
+
+# Editor & OS junk
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/

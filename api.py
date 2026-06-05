@@ -25,16 +25,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# ── CORS — izinkan React (localhost:3000 / localhost:5173) ───────────────────
+# ── CORS — izinkan semua origin untuk production (Railway deployment) ─────────
+# allow_origins=["*"] agar dapat diakses oleh full-stack frontend yang di-deploy
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",   # React CRA default
-        "http://localhost:5173",   # Vite default
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],       # Ganti dengan domain frontend spesifik setelah deploy jika perlu
+    allow_credentials=False,   # Harus False jika allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
